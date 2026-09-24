@@ -1,6 +1,6 @@
 """
 =============================================================================
-BACKEND EDGE-TTS API CHO PHÂN HỆ HSK 4 (RENDER.COM FASTAPI SERVER)
+BACKEND EDGE-TTS FASTAPI (ĐỒNG BỘ MỐC THỜI GIAN CHÍNH XÁC TỪNG TỪ)
 =============================================================================
 """
 from fastapi import FastAPI, Response, HTTPException
@@ -9,12 +9,10 @@ import edge_tts
 import base64
 
 app = FastAPI(
-    title="HSK 4 Edge-TTS Karaoke API",
-    description="Dịch vụ chuyển văn bản tiếng Trung thành giọng đọc Edge-TTS với mốc thời gian Karaoke",
-    version="2.0.0"
+    title="HSK 4 Edge-TTS Smart Sync API",
+    version="2.1.0"
 )
 
-# Cấu hình CORS để web frontend gọi API mà không bị chặn
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,57 +24,38 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    """Endpoint kiểm tra trạng thái hoạt động của server (dùng cho UptimeRobot)"""
-    return {
-        "status": "online",
-        "service": "HSK4 Edge-TTS Engine",
-        "default_voice": "zh-CN-YunyangNeural"
-    }
+    return {"status": "online", "service": "HSK 4 Edge-TTS Word-Sync Engine"}
 
 
+# Endpoint 1: Trả về MP3 trực tiếp (nghe thử hoặc tải nhanh)
 @app.get("/tts")
 async def text_to_speech(
     text: str,
     voice: str = "zh-CN-YunyangNeural",
     rate: str = "-5%"
 ):
-    """
-    Endpoint phát âm thanh trực tiếp (.mp3)
-    - text: Nội dung chữ Hán cần đọc
-    - voice: Mã giọng đọc (mặc định: Nam phát thanh Yunyang)
-    - rate: Tốc độ đọc (vd: -25%, -15%, -5%, +0%, +15%, +25%)
-    """
     if not text or not text.strip():
-        raise HTTPException(status_code=400, detail="Nội dung chữ Hán không được để trống")
-
+        raise HTTPException(status_code=400, detail="Nội dung không được để trống")
     try:
         communicate = edge_tts.Communicate(text=text.strip(), voice=voice, rate=rate)
         audio_bytes = b""
-
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 audio_bytes += chunk["data"]
-
-        if not audio_bytes:
-            raise HTTPException(status_code=500, detail="Không thể tạo dữ liệu âm thanh")
-
         return Response(content=audio_bytes, media_type="audio/mpeg")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/tts-karaoke")
-async def tts_with_karaoke(
+# 🌟 Endpoint 2: Trả về MP3 + Mốc thời gian chính xác từng từ từ Edge-TTS
+@app.get("/tts-sync")
+async def tts_sync(
     text: str,
     voice: str = "zh-CN-YunyangNeural",
     rate: str = "-5%"
 ):
-    """
-    Endpoint trả về âm thanh Base64 kèm mốc thời gian từng chữ (WordBoundary)
-    """
     if not text or not text.strip():
-        raise HTTPException(status_code=400, detail="Nội dung chữ Hán không được để trống")
-
+        raise HTTPException(status_code=400, detail="Nội dung không được để trống")
     try:
         communicate = edge_tts.Communicate(text=text.strip(), voice=voice, rate=rate)
         audio_bytes = b""
@@ -86,11 +65,15 @@ async def tts_with_karaoke(
             if chunk["type"] == "audio":
                 audio_bytes += chunk["data"]
             elif chunk["type"] == "WordBoundary":
-                # Đổi từ ticks sang giây (1 giây = 10.000.000 ticks)
+                data = chunk.get("data", chunk)
+                offset = data.get("offset", 0)
+                duration = data.get("duration", 0)
+                word_text = data.get("text", "")
+                # 1 giây = 10.000.000 ticks
                 boundaries.append({
-                    "text": chunk["data"]["text"],
-                    "start": chunk["data"]["offset"] / 10_000_000,
-                    "duration": chunk["data"]["duration"] / 10_000_000
+                    "text": word_text,
+                    "start": offset / 10_000_000,
+                    "duration": duration / 10_000_000
                 })
 
         return {
