@@ -1,6 +1,6 @@
 """
 =============================================================================
-BACKEND FASTAPI - EDGE-TTS SERVER WITH PINYIN-AWARE CACHE DISAMBIGUATION
+BACKEND FASTAPI - EDGE-TTS SERVER WITH PURE HANZI SHARING CACHE
 =============================================================================
 """
 import os
@@ -13,8 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import edge_tts
 
 app = FastAPI(
-    title="HSK Official TTS Engine (Bounded Storage & Pinyin Aware)",
-    version="3.2.0"
+    title="HSK Pure-Hanzi Shared TTS Engine",
+    version="3.3.0"
 )
 
 app.add_middleware(
@@ -29,12 +29,12 @@ CACHE_DIR = Path("./tts_cache")
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def get_cache_key(voice: str, rate: str, text: str, pinyin: str = "") -> str:
+def get_cache_key(voice: str, rate: str, text: str) -> str:
     """
-    Tạo mã băm duy nhất có kèm Pinyin để phân biệt chính xác các từ đa âm (多音字)
-    Ví dụ: 还 (hái) != 还 (huán)
+    Định danh file thuần bằng CHỮ HÁN GỐC và GIỌNG ĐỌC.
+    Mọi nơi có cùng chữ Hán sẽ dùng chung 1 file duy nhất.
     """
-    raw_str = f"{voice.strip()}|{rate.strip()}|{text.strip()}|{pinyin.strip().lower()}"
+    raw_str = f"{voice.strip()}|{rate.strip()}|{text.strip()}"
     return hashlib.sha256(raw_str.encode("utf-8")).hexdigest()
 
 
@@ -43,8 +43,8 @@ async def root():
     cache_count = len(list(CACHE_DIR.glob("*.json"))) + len(list(CACHE_DIR.glob("*.mp3")))
     return {
         "status": "online",
-        "service": "HSK Official Bounded Audio Engine",
-        "cached_variants": cache_count
+        "service": "HSK Pure-Hanzi Shared Audio Engine",
+        "cached_files": cache_count
     }
 
 
@@ -52,14 +52,13 @@ async def root():
 async def text_to_speech(
     text: str,
     voice: str = "zh-CN-YunyangNeural",
-    rate: str = "+0%",
-    pinyin: str = ""
+    rate: str = "+0%"
 ):
-    """Endpoint phát MP3 cho từ vựng và bài đọc HSK chuẩn"""
+    """Phát trực tiếp MP3 dùng chung cho Game, SRS, Từ đơn"""
     if not text or not text.strip():
         raise HTTPException(status_code=400, detail="Nội dung không được để trống")
 
-    cache_key = get_cache_key(voice, rate, text, pinyin)
+    cache_key = get_cache_key(voice, rate, text)
     cache_file = CACHE_DIR / f"{cache_key}.mp3"
 
     if cache_file.exists():
@@ -88,14 +87,13 @@ async def text_to_speech(
 async def tts_sync(
     text: str,
     voice: str = "zh-CN-YunyangNeural",
-    rate: str = "+0%",
-    pinyin: str = ""
+    rate: str = "+0%"
 ):
-    """Endpoint gộp luồng Base64 + Mốc thời gian WordBoundary cho Reading & Listening"""
+    """Endpoint kèm WordBoundary cho Reading & Listening"""
     if not text or not text.strip():
         raise HTTPException(status_code=400, detail="Nội dung không được để trống")
 
-    cache_key = get_cache_key(voice, rate, text, pinyin)
+    cache_key = get_cache_key(voice, rate, text)
     cache_file = CACHE_DIR / f"{cache_key}_sync.json"
 
     if cache_file.exists():
