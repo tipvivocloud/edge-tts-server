@@ -49,8 +49,9 @@ async def root():
 @app.get("/tts")
 async def text_to_speech(
     text: str,
-    voice: str = "zh-CN-YunyangNeural",
-    rate: str = "+0%"
+    voice: str = "zh-CN-XiaoxiaoNeural",
+    rate: str = "+0%",
+    only_cached: bool = False  # 👈 Cờ kiểm tra: Nếu True thì chỉ quét cache, không tạo file mới
 ):
     """Endpoint phát trực tiếp MP3 cho Game, SRS, Từ đơn"""
     clean_text = text.strip()
@@ -60,12 +61,18 @@ async def text_to_speech(
     cache_key = get_cache_key(voice, rate, clean_text)
     cache_file = CACHE_DIR / f"{cache_key}.mp3"
 
+    # 1. Nếu file đã có sẵn trong Cache Server -> Trả về ngay lập tức
     if cache_file.exists():
         try:
             return Response(content=cache_file.read_bytes(), media_type="audio/mpeg")
         except Exception:
             pass
 
+    # 2. 🚫 NẾU CHỈ QUÉT TÌM (only_cached=True cho từ Custom/AI) MÀ CHƯA CÓ -> DỪNG LẠI, KHÔNG TẠO MỚI
+    if only_cached:
+        raise HTTPException(status_code=404, detail="Chưa có file cache trên server")
+
+    # 3. Tạo mới âm thanh (Chỉ áp dụng cho từ HSK chuẩn hệ thống)
     try:
         communicate = edge_tts.Communicate(text=clean_text, voice=voice, rate=rate)
         audio_bytes = b""
@@ -85,8 +92,9 @@ async def text_to_speech(
 @app.get("/tts-sync")
 async def tts_sync(
     text: str,
-    voice: str = "zh-CN-YunyangNeural",
-    rate: str = "+0%"
+    voice: str = "zh-CN-XiaoxiaoNeural",
+    rate: str = "+0%",
+    only_cached: bool = False
 ):
     """Endpoint kèm WordBoundary cho Reading & Listening"""
     clean_text = text.strip()
@@ -96,11 +104,16 @@ async def tts_sync(
     cache_key = get_cache_key(voice, rate, clean_text)
     cache_file = CACHE_DIR / f"{cache_key}_sync.json"
 
+    # Nếu đã có sẵn file JSON sync trong cache
     if cache_file.exists():
         try:
             return json.loads(cache_file.read_text(encoding="utf-8"))
         except Exception:
             pass
+
+    # Nếu chỉ quét tìm mà chưa có trên server
+    if only_cached:
+        raise HTTPException(status_code=404, detail="Chưa có file sync cache trên server")
 
     try:
         communicate = edge_tts.Communicate(text=clean_text, voice=voice, rate=rate)
@@ -137,7 +150,7 @@ async def tts_sync(
 @app.get("/tts-delete")
 async def delete_tts_cache(
     text: str,
-    voice: str = "zh-CN-YunyangNeural",
+    voice: str = "zh-CN-XiaoxiaoNeural",
     rate: str = "+0%"
 ):
     """Xóa file cache khi người dùng sửa câu ví dụ"""
